@@ -1111,3 +1111,60 @@ button,
     font-size: 24px;
   }
 }
+
+/* ===== Supabase / login y sincronización ===== */
+.login-fields {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.login-fields .primary-btn {
+  margin-top: 4px;
+}
+
+.loading-row {
+  grid-column: 1 / -1;
+  width: 100%;
+  text-align: center;
+  padding: 28px 12px;
+  color: var(--muted);
+}
+
+button:disabled {
+  opacity: .68;
+  cursor: wait;
+  transform: none !important;
+}
+
+.client-box a {
+  color: var(--green-800);
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.past-slot {
+  opacity: .68;
+}
+
+@media (max-width: 600px) {
+  .login-fields {
+    margin-top: 18px;
+  }
+
+  .admin-login {
+    text-align: left;
+  }
+
+  .admin-login .admin-icon,
+  .admin-login > .eyebrow,
+  .admin-login > h2,
+  .admin-login > p,
+  .admin-login > small {
+    text-align: center;
+  }
+
+  .admin-login .admin-icon {
+    margin-left: auto;
+    margin-right: auto;
+  }
+}

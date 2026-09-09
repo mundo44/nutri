@@ -1,14 +1,24 @@
-const STORAGE_KEY = "nutriagenda_slots_v1";
-const ADMIN_PIN = "1989";
+// ================================================================
+// NutriAgenda + Supabase
+// Las citas ya NO se guardan en localStorage.
+// Todos los dispositivos leen y escriben en la misma base de datos.
+// ================================================================
+
+const SUPABASE_URL = "https://zemfekzwzcpoehxrkbml.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_6yqaX3PdQieS4IE5ZHSbyg_htjNK4MH";
+
+const { createClient } = window.supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 let selectedSlotId = null;
+let currentView = "booking";
+let refreshTimer = null;
 
-function getSlots() {
-  return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-}
-
-function saveSlots(slots) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(slots));
+function localToday() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
 }
 
 function formatDate(dateString) {
@@ -31,29 +41,67 @@ function formatShortDate(dateString) {
   });
 }
 
-function showView(view) {
+function formatTime(timeString) {
+  return String(timeString || "").slice(0, 5);
+}
+
+function isPastSlot(slot) {
+  const dateTime = new Date(`${slot.appointment_date}T${formatTime(slot.appointment_time)}:00`);
+  return dateTime.getTime() < Date.now();
+}
+
+async function showView(view) {
+  currentView = view;
+
   document.getElementById("bookingView").classList.toggle("active", view === "booking");
   document.getElementById("adminView").classList.toggle("active", view === "admin");
   document.getElementById("navBooking").classList.toggle("active", view === "booking");
   document.getElementById("navAdmin").classList.toggle("active", view === "admin");
 
-  if (view === "booking") renderPublicSlots();
-  if (view === "admin" && sessionStorage.getItem("nutriAdmin") === "1") {
-    showAdminPanel();
+  if (view === "booking") {
+    await renderPublicSlots();
+  } else {
+    await checkAdminSession();
   }
 }
 
-function renderPublicSlots() {
+async function renderPublicSlots() {
   const grid = document.getElementById("slotsGrid");
   const empty = document.getElementById("emptySlots");
-  const slots = getSlots()
-    .filter(slot => !slot.booking)
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
+  grid.innerHTML = `<div class="loading-row">Cargando horarios...</div>`;
+  empty.classList.add("hidden");
+
+  const { data, error } = await db
+    .from("slots")
+    .select("id, subject, appointment_date, appointment_time, duration_minutes, booked")
+    .eq("booked", false)
+    .gte("appointment_date", localToday())
+    .order("appointment_date", { ascending: true })
+    .order("appointment_time", { ascending: true });
+
+  if (error) {
+    console.error(error);
+    grid.innerHTML = "";
+    empty.classList.remove("hidden");
+    empty.innerHTML = `
+      <div class="empty-icon">⚠️</div>
+      <h3>No se pudieron cargar las citas</h3>
+      <p>Revisa la conexión con Supabase o las políticas de la base de datos.</p>
+    `;
+    return;
+  }
+
+  const slots = (data || []).filter(slot => !isPastSlot(slot));
   grid.innerHTML = "";
 
   if (slots.length === 0) {
     empty.classList.remove("hidden");
+    empty.innerHTML = `
+      <div class="empty-icon">📅</div>
+      <h3>No hay horarios disponibles</h3>
+      <p>El administrador todavía no ha publicado nuevas citas.</p>
+    `;
     return;
   }
 
@@ -63,24 +111,32 @@ function renderPublicSlots() {
     const card = document.createElement("article");
     card.className = "slot-card";
     card.innerHTML = `
-      <div class="slot-date">${formatDate(slot.date)}</div>
+      <div class="slot-date">${formatDate(slot.appointment_date)}</div>
       <h3>${escapeHtml(slot.subject)}</h3>
-      <div class="slot-meta">🕒 ${slot.time} · ${slot.duration} min</div>
+      <div class="slot-meta">🕒 ${formatTime(slot.appointment_time)} · ${slot.duration_minutes} min</div>
       <button class="primary-btn" onclick="openBookingForm('${slot.id}')">Reservar</button>
     `;
     grid.appendChild(card);
   });
 }
 
-function openBookingForm(id) {
-  const slot = getSlots().find(s => s.id === id);
-  if (!slot || slot.booking) return;
+async function openBookingForm(id) {
+  const { data: slot, error } = await db
+    .from("slots")
+    .select("id, subject, appointment_date, appointment_time, duration_minutes, booked")
+    .eq("id", id)
+    .single();
+
+  if (error || !slot || slot.booked || isPastSlot(slot)) {
+    toast("Ese horario ya no está disponible.");
+    await renderPublicSlots();
+    return;
+  }
 
   selectedSlotId = id;
-
   document.getElementById("selectedSlotSummary").innerHTML = `
     <strong>${escapeHtml(slot.subject)}</strong><br>
-    ${formatDate(slot.date)} · ${slot.time} · ${slot.duration} minutos
+    ${formatDate(slot.appointment_date)} · ${formatTime(slot.appointment_time)} · ${slot.duration_minutes} minutos
   `;
 
   document.getElementById("bookingFormCard").classList.remove("hidden");
@@ -93,104 +149,176 @@ function closeBookingForm() {
   document.getElementById("bookingForm").reset();
 }
 
-document.getElementById("bookingForm").addEventListener("submit", function(event) {
+document.getElementById("bookingForm").addEventListener("submit", async function(event) {
   event.preventDefault();
 
-  const slots = getSlots();
-  const index = slots.findIndex(s => s.id === selectedSlotId);
+  if (!selectedSlotId) return;
 
-  if (index === -1 || slots[index].booking) {
-    toast("Ese horario ya no está disponible.");
-    closeBookingForm();
-    renderPublicSlots();
-    return;
-  }
+  const submitButton = event.submitter;
+  setButtonLoading(submitButton, true, "Reservando...");
 
-  slots[index].booking = {
-    name: document.getElementById("clientName").value.trim(),
-    phone: document.getElementById("clientPhone").value.trim(),
-    email: document.getElementById("clientEmail").value.trim(),
-    notes: document.getElementById("clientNotes").value.trim(),
-    createdAt: new Date().toISOString()
+  const payload = {
+    p_slot_id: selectedSlotId,
+    p_name: document.getElementById("clientName").value.trim(),
+    p_phone: document.getElementById("clientPhone").value.trim(),
+    p_email: document.getElementById("clientEmail").value.trim() || null,
+    p_notes: document.getElementById("clientNotes").value.trim() || null
   };
 
-  saveSlots(slots);
-  toast("¡Cita reservada correctamente! 🌿");
-  closeBookingForm();
-  renderPublicSlots();
-});
+  const { error } = await db.rpc("book_slot", payload);
 
-function loginAdmin() {
-  const pin = document.getElementById("adminPin").value;
+  setButtonLoading(submitButton, false);
 
-  if (pin === ADMIN_PIN) {
-    sessionStorage.setItem("nutriAdmin", "1");
-    document.getElementById("pinError").classList.add("hidden");
-    showAdminPanel();
-  } else {
-    document.getElementById("pinError").classList.remove("hidden");
-  }
-}
-
-function logoutAdmin() {
-  sessionStorage.removeItem("nutriAdmin");
-  document.getElementById("adminPanel").classList.add("hidden");
-  document.getElementById("adminLogin").classList.remove("hidden");
-  document.getElementById("adminPin").value = "";
-}
-
-function showAdminPanel() {
-  document.getElementById("adminLogin").classList.add("hidden");
-  document.getElementById("adminPanel").classList.remove("hidden");
-  renderAdminSlots();
-}
-
-document.getElementById("slotForm").addEventListener("submit", function(event) {
-  event.preventDefault();
-
-  const subject = document.getElementById("slotSubject").value.trim();
-  const date = document.getElementById("slotDate").value;
-  const time = document.getElementById("slotTime").value;
-  const duration = Number(document.getElementById("slotDuration").value);
-
-  const slots = getSlots();
-
-  const exists = slots.some(s => s.date === date && s.time === time);
-  if (exists) {
-    toast("Ya existe un horario en esa fecha y hora.");
+  if (error) {
+    console.error(error);
+    const unavailable = String(error.message || "").includes("SLOT_NOT_AVAILABLE") ||
+                        String(error.message || "").toLowerCase().includes("duplicate");
+    toast(unavailable
+      ? "Ese horario acaba de ser reservado por otra persona."
+      : "No se pudo guardar la cita. Intenta nuevamente.");
+    closeBookingForm();
+    await renderPublicSlots();
     return;
   }
 
-  slots.push({
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    subject,
-    date,
-    time,
-    duration,
-    booking: null
-  });
+  toast("¡Cita reservada correctamente! 🌿");
+  closeBookingForm();
+  await renderPublicSlots();
+});
 
-  saveSlots(slots);
+// ============================ ADMIN ============================
+
+document.getElementById("adminLoginForm").addEventListener("submit", loginAdmin);
+
+async function loginAdmin(event) {
+  event.preventDefault();
+
+  const email = document.getElementById("adminEmail").value.trim();
+  const password = document.getElementById("adminPassword").value;
+  const errorText = document.getElementById("loginError");
+  const button = event.submitter;
+
+  errorText.classList.add("hidden");
+  setButtonLoading(button, true, "Entrando...");
+
+  const { error } = await db.auth.signInWithPassword({ email, password });
+
+  setButtonLoading(button, false);
+
+  if (error) {
+    console.error(error);
+    errorText.textContent = "Correo o contraseña incorrectos.";
+    errorText.classList.remove("hidden");
+    return;
+  }
+
+  document.getElementById("adminPassword").value = "";
+  await showAdminPanel();
+}
+
+async function checkAdminSession() {
+  const { data, error } = await db.auth.getSession();
+
+  if (error || !data.session) {
+    document.getElementById("adminPanel").classList.add("hidden");
+    document.getElementById("adminLogin").classList.remove("hidden");
+    return;
+  }
+
+  await showAdminPanel();
+}
+
+async function logoutAdmin() {
+  await db.auth.signOut();
+  document.getElementById("adminPanel").classList.add("hidden");
+  document.getElementById("adminLogin").classList.remove("hidden");
+  document.getElementById("adminEmail").value = "";
+  document.getElementById("adminPassword").value = "";
+  toast("Sesión cerrada.");
+}
+
+async function showAdminPanel() {
+  document.getElementById("adminLogin").classList.add("hidden");
+  document.getElementById("adminPanel").classList.remove("hidden");
+  await renderAdminSlots();
+}
+
+document.getElementById("slotForm").addEventListener("submit", async function(event) {
+  event.preventDefault();
+
+  const button = event.submitter;
+  setButtonLoading(button, true, "Publicando...");
+
+  const slot = {
+    subject: document.getElementById("slotSubject").value.trim(),
+    appointment_date: document.getElementById("slotDate").value,
+    appointment_time: document.getElementById("slotTime").value,
+    duration_minutes: Number(document.getElementById("slotDuration").value),
+    booked: false
+  };
+
+  const { error } = await db.from("slots").insert(slot);
+
+  setButtonLoading(button, false);
+
+  if (error) {
+    console.error(error);
+    if (String(error.code) === "23505") {
+      toast("Ya existe un horario en esa fecha y hora.");
+    } else if (String(error.code) === "42501") {
+      toast("Tu usuario no tiene permiso para crear horarios.");
+    } else {
+      toast("No se pudo publicar el horario.");
+    }
+    return;
+  }
+
   event.target.reset();
   document.getElementById("slotDuration").value = "60";
   setDefaultDate();
-  toast("Horario publicado.");
-  renderAdminSlots();
-  renderPublicSlots();
+  toast("Horario publicado y visible en todos los dispositivos. 🌿");
+  await refreshAll();
 });
 
-function renderAdminSlots() {
+async function renderAdminSlots() {
   const list = document.getElementById("adminSlotsList");
-  const slots = getSlots()
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  list.innerHTML = `<div class="loading-row">Cargando citas...</div>`;
+
+  const [{ data: slots, error: slotsError }, { data: bookings, error: bookingsError }] = await Promise.all([
+    db
+      .from("slots")
+      .select("id, subject, appointment_date, appointment_time, duration_minutes, booked")
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true }),
+    db
+      .from("bookings")
+      .select("id, slot_id, name, phone, email, notes, created_at")
+      .order("created_at", { ascending: false })
+  ]);
+
+  if (slotsError || bookingsError) {
+    console.error(slotsError || bookingsError);
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <h3>No se pudieron cargar los datos</h3>
+        <p>Verifica que hayas iniciado sesión y que las políticas RLS estén configuradas.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const allSlots = slots || [];
+  const bookingMap = new Map((bookings || []).map(b => [b.slot_id, b]));
+  const upcomingSlots = allSlots.filter(slot => !isPastSlot(slot));
+
+  document.getElementById("statSlots").textContent = upcomingSlots.length;
+  document.getElementById("statBooked").textContent = upcomingSlots.filter(s => s.booked).length;
+  document.getElementById("statFree").textContent = upcomingSlots.filter(s => !s.booked).length;
 
   list.innerHTML = "";
 
-  document.getElementById("statSlots").textContent = slots.length;
-  document.getElementById("statBooked").textContent = slots.filter(s => s.booking).length;
-  document.getElementById("statFree").textContent = slots.filter(s => !s.booking).length;
-
-  if (slots.length === 0) {
+  if (allSlots.length === 0) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🗓️</div>
@@ -201,32 +329,34 @@ function renderAdminSlots() {
     return;
   }
 
-  slots.forEach(slot => {
+  allSlots.forEach(slot => {
+    const booking = bookingMap.get(slot.id);
+    const past = isPastSlot(slot);
     const item = document.createElement("div");
-    item.className = "admin-slot";
+    item.className = `admin-slot${past ? " past-slot" : ""}`;
 
-    const clientBox = slot.booking ? `
+    const clientBox = booking ? `
       <div class="client-box">
-        <strong>Paciente:</strong> ${escapeHtml(slot.booking.name)}<br>
-        <strong>Teléfono:</strong> ${escapeHtml(slot.booking.phone)}<br>
-        ${slot.booking.email ? `<strong>Correo:</strong> ${escapeHtml(slot.booking.email)}<br>` : ""}
-        ${slot.booking.notes ? `<strong>Notas:</strong> ${escapeHtml(slot.booking.notes)}` : ""}
+        <strong>Paciente:</strong> ${escapeHtml(booking.name)}<br>
+        <strong>Teléfono:</strong> <a href="tel:${escapeAttribute(booking.phone)}">${escapeHtml(booking.phone)}</a><br>
+        ${booking.email ? `<strong>Correo:</strong> <a href="mailto:${escapeAttribute(booking.email)}">${escapeHtml(booking.email)}</a><br>` : ""}
+        ${booking.notes ? `<strong>Notas:</strong> ${escapeHtml(booking.notes)}` : ""}
       </div>
     ` : "";
+
+    const statusClass = booking ? "booked" : "free";
+    const statusText = past ? (booking ? "Finalizada / reservada" : "Horario pasado") : (booking ? "Reservada" : "Disponible");
 
     item.innerHTML = `
       <div class="admin-slot-top">
         <div>
           <h3>${escapeHtml(slot.subject)}</h3>
-          <p>${formatShortDate(slot.date)} · ${slot.time} · ${slot.duration} min</p>
+          <p>${formatShortDate(slot.appointment_date)} · ${formatTime(slot.appointment_time)} · ${slot.duration_minutes} min</p>
         </div>
-        <button class="danger-btn" onclick="deleteSlot('${slot.id}')">Eliminar</button>
+        <button class="danger-btn" onclick="deleteSlot('${slot.id}', ${Boolean(booking)})">Eliminar</button>
       </div>
 
-      <span class="status ${slot.booking ? "booked" : "free"}">
-        ${slot.booking ? "Reservada" : "Disponible"}
-      </span>
-
+      <span class="status ${statusClass}">${statusText}</span>
       ${clientBox}
     `;
 
@@ -234,77 +364,53 @@ function renderAdminSlots() {
   });
 }
 
-function deleteSlot(id) {
-  const slots = getSlots();
-  const slot = slots.find(s => s.id === id);
-
-  const message = slot && slot.booking
-    ? "Este horario tiene una reservación. ¿Seguro que quieres eliminarlo?"
+async function deleteSlot(id, hasBooking) {
+  const message = hasBooking
+    ? "Este horario tiene una reservación y también se eliminarán los datos de esa cita. ¿Continuar?"
     : "¿Eliminar este horario?";
 
   if (!confirm(message)) return;
 
-  saveSlots(slots.filter(s => s.id !== id));
-  toast("Horario eliminado.");
-  renderAdminSlots();
-  renderPublicSlots();
-}
+  const { error } = await db.from("slots").delete().eq("id", id);
 
-function seedDemoData() {
-  const slots = getSlots();
-
-  if (slots.length > 0 && !confirm("Ya existen datos. ¿Agregar además algunos horarios de ejemplo?")) {
+  if (error) {
+    console.error(error);
+    toast("No se pudo eliminar el horario.");
     return;
   }
 
-  const now = new Date();
-  const makeDate = offset => {
-    const d = new Date(now);
-    d.setDate(d.getDate() + offset);
-    return d.toISOString().slice(0, 10);
-  };
+  toast("Horario eliminado.");
+  await refreshAll();
+}
 
-  const demo = [
-    {
-      id: "demo-" + Date.now() + "-1",
-      subject: "Consulta nutricional inicial",
-      date: makeDate(1),
-      time: "10:00",
-      duration: 60,
-      booking: null
-    },
-    {
-      id: "demo-" + Date.now() + "-2",
-      subject: "Seguimiento nutricional",
-      date: makeDate(1),
-      time: "12:30",
-      duration: 45,
-      booking: null
-    },
-    {
-      id: "demo-" + Date.now() + "-3",
-      subject: "Valoración y plan alimenticio",
-      date: makeDate(2),
-      time: "16:00",
-      duration: 60,
-      booking: null
-    }
-  ];
+async function refreshAll() {
+  if (currentView === "booking") {
+    await renderPublicSlots();
+    return;
+  }
 
-  saveSlots([...slots, ...demo]);
-  toast("Horarios de ejemplo agregados.");
-  renderAdminSlots();
-  renderPublicSlots();
+  const { data } = await db.auth.getSession();
+  if (data.session) await renderAdminSlots();
 }
 
 function setDefaultDate() {
   const input = document.getElementById("slotDate");
-  const today = new Date();
-  const local = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
-  input.min = local;
-  if (!input.value) input.value = local;
+  const today = localToday();
+  input.min = today;
+  if (!input.value) input.value = today;
+}
+
+function setButtonLoading(button, loading, text = "Cargando...") {
+  if (!button) return;
+
+  if (loading) {
+    button.dataset.originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = text;
+  } else {
+    button.disabled = false;
+    button.textContent = button.dataset.originalText || button.textContent;
+  }
 }
 
 function toast(message) {
@@ -312,11 +418,11 @@ function toast(message) {
   el.textContent = message;
   el.classList.add("show");
   clearTimeout(window.toastTimer);
-  window.toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  window.toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -324,9 +430,32 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+// Actualización automática para que una reservación hecha en otro celular
+// aparezca sin tener que recargar manualmente la página.
+function startAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    if (!document.hidden) refreshAll();
+  }, 12000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshAll();
+});
+
+db.auth.onAuthStateChange((event) => {
+  if (currentView !== "admin") return;
+
+  if (event === "SIGNED_OUT") {
+    document.getElementById("adminPanel").classList.add("hidden");
+    document.getElementById("adminLogin").classList.remove("hidden");
+  }
+});
+
 setDefaultDate();
 renderPublicSlots();
-
-if (sessionStorage.getItem("nutriAdmin") === "1") {
-  showAdminPanel();
-}
+startAutoRefresh();

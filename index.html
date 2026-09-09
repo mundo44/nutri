@@ -116,13 +116,20 @@
         <div class="admin-icon">🔐</div>
         <span class="eyebrow">ACCESO RESTRINGIDO</span>
         <h2>Panel de administración</h2>
-        <p>Ingresa el PIN para administrar citas y horarios.</p>
-        <small class="admin-security-note">El acceso se mantiene mientras esta pestaña permanezca abierta.</small>
-        <div class="pin-row">
-          <input id="adminPin" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
-          <button class="primary-btn" onclick="loginAdmin()">Entrar</button>
-        </div>
-                <p id="pinError" class="error-text hidden">PIN incorrecto.</p>
+        <p>Inicia sesión con tu cuenta de administrador de Supabase.</p>
+        <small class="admin-security-note">Las citas se sincronizan entre computadora y celular.</small>
+        <form id="adminLoginForm" class="login-fields">
+          <label>
+            <span>Correo del administrador</span>
+            <input id="adminEmail" type="email" autocomplete="email" placeholder="tu@correo.com" required />
+          </label>
+          <label>
+            <span>Contraseña</span>
+            <input id="adminPassword" type="password" autocomplete="current-password" placeholder="Contraseña" required />
+          </label>
+          <button class="primary-btn" type="submit">Entrar</button>
+        </form>
+        <p id="loginError" class="error-text hidden"></p>
       </div>
 
       <div id="adminPanel" class="hidden">
@@ -192,7 +199,7 @@
                 <span class="eyebrow">HORARIOS</span>
                 <h2>Próximas citas</h2>
               </div>
-              <button class="text-btn" onclick="seedDemoData()">+ Demo</button>
+              <button class="text-btn" onclick="refreshAll()">↻ Actualizar</button>
             </div>
 
             <div id="adminSlotsList" class="admin-list"></div>
@@ -208,6 +215,7 @@
     <p>🌿 NutriAgenda · Agenda de consultas nutricionales</p>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
