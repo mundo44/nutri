@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>NutriAgenda</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -117,12 +117,12 @@
         <span class="eyebrow">ACCESO RESTRINGIDO</span>
         <h2>Panel de administración</h2>
         <p>Ingresa el PIN para administrar citas y horarios.</p>
+        <small class="admin-security-note">El acceso se mantiene mientras esta pestaña permanezca abierta.</small>
         <div class="pin-row">
           <input id="adminPin" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
           <button class="primary-btn" onclick="loginAdmin()">Entrar</button>
         </div>
-        <small class="hint">PIN de demostración: <b>1234</b></small>
-        <p id="pinError" class="error-text hidden">PIN incorrecto.</p>
+                <p id="pinError" class="error-text hidden">PIN incorrecto.</p>
       </div>
 
       <div id="adminPanel" class="hidden">

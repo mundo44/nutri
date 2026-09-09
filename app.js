@@ -1,5 +1,5 @@
 const STORAGE_KEY = "nutriagenda_slots_v1";
-const ADMIN_PIN = "1234";
+const ADMIN_PIN = "1989";
 
 let selectedSlotId = null;
 
