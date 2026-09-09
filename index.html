@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NutriAgenda</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="background-shape shape-1"></div>
+  <div class="background-shape shape-2"></div>
+
+  <header class="topbar">
+    <a href="#" class="brand" onclick="showView('booking')">
+      <div class="brand-icon">🌿</div>
+      <div>
+        <strong>NutriAgenda</strong>
+        <span>Bienestar & Nutrición</span>
+      </div>
+    </a>
+
+    <nav>
+      <button class="nav-btn active" id="navBooking" onclick="showView('booking')">Agendar cita</button>
+      <button class="nav-btn" id="navAdmin" onclick="showView('admin')">Administración</button>
+    </nav>
+  </header>
+
+  <main class="page-container">
+
+    <!-- VISTA CLIENTE -->
+    <section id="bookingView" class="view active">
+      <div class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">TU SALUD, A TU RITMO</span>
+          <h1>Reserva tu próxima <span>consulta nutricional</span></h1>
+          <p>
+            Elige entre los horarios disponibles y agenda tu cita en menos de un minuto.
+          </p>
+          <div class="benefits">
+            <span>✓ Horarios disponibles</span>
+            <span>✓ Reserva rápida</span>
+            <span>✓ Atención personalizada</span>
+          </div>
+        </div>
+
+        <div class="hero-art">
+          <div class="leaf-card">
+            <div class="circle circle-one"></div>
+            <div class="circle circle-two"></div>
+            <div class="plate">🥗</div>
+            <span class="mini-card mini-card-1">🌱 Bienestar</span>
+            <span class="mini-card mini-card-2">💚 Hábitos sanos</span>
+          </div>
+        </div>
+      </div>
+
+      <section class="card booking-card">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">RESERVA EN LÍNEA</span>
+            <h2>Selecciona un horario</h2>
+          </div>
+          <span class="availability-dot"><i></i> Citas disponibles</span>
+        </div>
+
+        <div id="emptySlots" class="empty-state hidden">
+          <div class="empty-icon">📅</div>
+          <h3>No hay horarios disponibles</h3>
+          <p>El administrador todavía no ha publicado nuevas citas.</p>
+        </div>
+
+        <div id="slotsGrid" class="slots-grid"></div>
+      </section>
+
+      <section id="bookingFormCard" class="card form-card hidden">
+        <button class="close-button" onclick="closeBookingForm()">×</button>
+        <span class="eyebrow">CONFIRMA TU CITA</span>
+        <h2>Completa tus datos</h2>
+
+        <div id="selectedSlotSummary" class="selected-summary"></div>
+
+        <form id="bookingForm">
+          <div class="form-grid">
+            <label>
+              <span>Nombre completo</span>
+              <input id="clientName" type="text" placeholder="Ej. Ana Martínez" required />
+            </label>
+
+            <label>
+              <span>Teléfono</span>
+              <input id="clientPhone" type="tel" placeholder="Ej. 81 1234 5678" required />
+            </label>
+
+            <label class="full">
+              <span>Correo electrónico <small>(opcional)</small></span>
+              <input id="clientEmail" type="email" placeholder="correo@ejemplo.com" />
+            </label>
+
+            <label class="full">
+              <span>Notas <small>(opcional)</small></span>
+              <textarea id="clientNotes" rows="3" placeholder="Algo que quieras comentar antes de la consulta..."></textarea>
+            </label>
+          </div>
+
+          <button class="primary-btn" type="submit">Confirmar cita</button>
+        </form>
+      </section>
+    </section>
+
+    <!-- VISTA ADMIN -->
+    <section id="adminView" class="view">
+      <div id="adminLogin" class="admin-login card">
+        <div class="admin-icon">🔐</div>
+        <span class="eyebrow">ACCESO RESTRINGIDO</span>
+        <h2>Panel de administración</h2>
+        <p>Ingresa el PIN para administrar citas y horarios.</p>
+        <div class="pin-row">
+          <input id="adminPin" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
+          <button class="primary-btn" onclick="loginAdmin()">Entrar</button>
+        </div>
+        <small class="hint">PIN de demostración: <b>1234</b></small>
+        <p id="pinError" class="error-text hidden">PIN incorrecto.</p>
+      </div>
+
+      <div id="adminPanel" class="hidden">
+        <div class="admin-header">
+          <div>
+            <span class="eyebrow">PANEL DE CONTROL</span>
+            <h1>Administración de citas</h1>
+            <p>Crea horarios disponibles y revisa las reservaciones.</p>
+          </div>
+          <button class="secondary-btn" onclick="logoutAdmin()">Cerrar sesión</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span>Horarios publicados</span>
+            <strong id="statSlots">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>Citas reservadas</span>
+            <strong id="statBooked">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>Horarios libres</span>
+            <strong id="statFree">0</strong>
+          </div>
+        </div>
+
+        <div class="admin-grid">
+          <section class="card">
+            <span class="eyebrow">NUEVO HORARIO</span>
+            <h2>Publicar disponibilidad</h2>
+
+            <form id="slotForm">
+              <label>
+                <span>Asunto de la cita</span>
+                <input id="slotSubject" type="text" placeholder="Ej. Consulta inicial" required />
+              </label>
+
+              <div class="form-grid">
+                <label>
+                  <span>Fecha</span>
+                  <input id="slotDate" type="date" required />
+                </label>
+                <label>
+                  <span>Hora</span>
+                  <input id="slotTime" type="time" required />
+                </label>
+              </div>
+
+              <label>
+                <span>Duración</span>
+                <select id="slotDuration">
+                  <option value="30">30 minutos</option>
+                  <option value="45">45 minutos</option>
+                  <option value="60" selected>60 minutos</option>
+                  <option value="90">90 minutos</option>
+                </select>
+              </label>
+
+              <button class="primary-btn" type="submit">Agregar horario</button>
+            </form>
+          </section>
+
+          <section class="card">
+            <div class="section-heading compact">
+              <div>
+                <span class="eyebrow">HORARIOS</span>
+                <h2>Próximas citas</h2>
+              </div>
+              <button class="text-btn" onclick="seedDemoData()">+ Demo</button>
+            </div>
+
+            <div id="adminSlotsList" class="admin-list"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <footer>
+    <p>🌿 NutriAgenda · Agenda de consultas nutricionales</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
